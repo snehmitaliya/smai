@@ -1,51 +1,47 @@
 const fetch = require('node-fetch');
 
+const headers = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': '*'
+};
+
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
-  }
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
-  };
-
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   try {
     const { prompt } = JSON.parse(event.body);
+    const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    if (GEMINI_KEY) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: `Enhance this image generation prompt to be more vivid, detailed and specific. Add style keywords, lighting, mood, composition, quality descriptors. Return ONLY the enhanced prompt, nothing else: ${prompt}` }] }],
+          generationConfig: { maxOutputTokens: 200 }
+        })
+      });
+      const d = await res.json();
+      const enhanced = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (enhanced) return { statusCode: 200, headers, body: JSON.stringify({ enhanced }) };
+    }
+
+    // Fallback — pollinations
+    const res2 = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 200,
+        model: 'openai',
         messages: [
-          {
-            role: 'system',
-            content: 'You are an expert AI image generation prompt engineer. Enhance the user\'s simple prompt into a vivid, detailed, and specific prompt for AI image generation. Add style keywords (photorealistic, cinematic, 8K, HDR, beautiful lighting, shallow depth of field, etc.), mood, composition details, and quality descriptors. Return ONLY the enhanced prompt text. No explanation, no quotes, no extra text.'
-          },
+          { role: 'system', content: 'Enhance image generation prompts. Return ONLY the enhanced prompt, nothing else.' },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.8
+        max_tokens: 200
       })
     });
-
-    const data = await response.json();
-    const enhanced = data.choices?.[0]?.message?.content?.trim() || prompt;
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ enhanced })
-    };
-  } catch (err) {
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ enhanced: JSON.parse(event.body).prompt })
-    };
+    const d2 = await res2.json();
+    const enhanced2 = d2.choices?.[0]?.message?.content?.trim() || prompt;
+    return { statusCode: 200, headers, body: JSON.stringify({ enhanced: enhanced2 }) };
+  } catch (e) {
+    return { statusCode: 200, headers, body: JSON.stringify({ enhanced: JSON.parse(event.body).prompt }) };
   }
 };
